@@ -1,0 +1,273 @@
+\documentclass[lang=cn,11pt]{elegantpaper}
+\title{预备工作2 : 定义编译器功能\&汇编语言编程}
+\author{高文畅 1812983}
+\date{}
+
+\begin{document}
+	\maketitle
+	\begin{abstract}
+		本次实验分析了GCC编译器支持的C语言特性,在此基础上定义了C语言的子集,之后用上下文无关文法对其做了简单的描述.之后以一个简单的C语言程序为例,该程序用来求解较小范围的整数n的阶乘,编写了与之等价的x86汇编程序.
+	\end{abstract}
+	\keywords{编译系统, C语言, 上下文无关文法, 汇编语言}
+	\newpage
+	\tableofcontents
+	\newpage
+	
+	\section{编译器支持的C语言特性及C语言子集}
+	\subsection{支持的特性}
+	\subsubsection{数据类型}
+	基本数据类型: short, int, long, char, float, double, bool \par
+	指针(如int* 等), 结构体(struct),枚举{enum},联合{union}
+	\subsubsection{变量,常量的声明和赋值}
+	\subsubsection{定义函数}
+	\subsubsection{注释}
+	\subsubsection{分支结构}
+	分支结构包括关键字: if, else, switch, case, default
+	\subsubsection{循环结构}
+	循环结构包括关键字: for, while, do
+	\subsection{用CFG描述C语言子集}
+	\subsubsection{标识符的命名}
+	\begin{equation*}
+		\begin{split}
+			&letter \rightarrow a\ |\ b\ |...|\ z\ |\ A\ |\ B\ |...|\ Z \\
+			&digit \rightarrow 0\ |\ 1\ |...|\ 9 \\
+			&begin \rightarrow \_\ |\ \epsilon \\
+			&body \rightarrow body\ letter\ |\ body\ digit\ |\ letter\ |\ digit\ |\ \_\ |\ \epsilon \\
+			&id \rightarrow beginletterbody \\
+		\end{split}
+	\end{equation*}
+	\subsubsection{变量声明}
+	\begin{equation*}
+		\begin{split}
+		&type \rightarrow *type\ |\ short\ |\ int\ |\ long\ |\ char\ |\ float\ |\ double\ |\ bool \\
+		&ids \rightarrow ids,\ id\ |\ id \\
+		&var\_decl \rightarrow type\ ids \\
+		\end{split}	
+	\end{equation*}
+	\subsubsection{变量赋值}
+	\begin{equation*}
+		\begin{split}
+			&integer \rightarrow integer\ digit\ |\ digit \\
+			&float \rightarrow integer.integer\ |\ integer \\
+			&boolean \rightarrow true\ |\ false\ \\
+			&value \rightarrow integer\ |\ integer\ |\ float\ |\ boolean \\
+			&var\_assi \rightarrow id\ =\ integer\ |\ float\ |\ boolean\ \\
+		\end{split}
+	\end{equation*}
+	\subsection{数组声明}
+	\begin{equation*}
+		\begin{split}
+			&decl \rightarrow type\ arrays \\
+			&arrays \rightarrow arrays,\ id[integer]\ |\ id[integer] \\
+		\end{split}
+	\end{equation*}
+	\subsection{函数定义}
+		\begin{equation*}
+		\begin{split}
+			&ftype \rightarrow type\ |\ void \\
+			&fun\_defn \rightarrow ftype\ funname(paras)\ \{stmt\} \\
+			&paras \rightarrow paras,\ type\ id\ |\ type\ id\ |\ \epsilon \\
+			&funname \rightarrow id \\
+		\end{split}
+	\end{equation*}
+	\subsection{循环语句}
+		\begin{equation*}
+			\begin{split}
+				&stmt \rightarrow while(expr)\ stmt \\
+				&stmt \rightarrow for(expr;expr;expr) stmt \\
+				&stmt \rightarrow do\ stmt while(expr) \\
+			\end{split}
+		\end{equation*}
+	\subsection{条件语句}
+		\begin{equation*}
+		\begin{split}
+			&stmt \rightarrow if(stmt) else\ stmt \\
+			&stmt \rightarrow if(stmt)\ stmt \\
+		\end{split}
+		\end{equation*}
+	\section{汇编程序}
+	\subsection{原C语言程序}
+	\begin{lstlisting}
+#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#define INF 9999
+int x =101;
+int fact(int a)
+{
+	int i=1,ans=1;
+	for(;i<=a;i++)
+	ans*=i;
+	return ans;
+}
+int main()
+{
+	int n;
+	scanf("%d",&n);
+	printf("%d\n",fact(n));
+	printf("%d",x);
+	return 0;
+}
+	\end{lstlisting}
+	\subsection{汇编语言程序}
+	\begin{lstlisting}
+		    .text
+		.global max
+		.type fact, @function
+		max:
+		movl    8(%ebp), %edx
+		movl    $1, %eax
+		cmpl    $1, %edx
+		jle     L1
+		
+		L0:
+		imull   %edx, %eax
+		subl    $1, %edx
+		cmpl    $1, %edx
+		jg  .L0
+		
+		L1:         done:
+		x: 
+		.zero 4
+		.align 4
+		
+		
+		.section    .rodata
+		STR0:
+		.string "%d"
+		STR1:
+		.string "%d\n"
+		STR2:
+		.string "%d"
+		
+		
+		.text
+		.gloabal    main
+		.type main, @function
+		main:
+		pushl   $n
+		pushl   $STR0
+		call    scanf
+		addl    $12, esp
+		movel   n, %rbp+8
+		pushl   %eax
+		pushl   $STR1
+		call    printf
+		movl    x, %eax
+		pushl   %eax
+		pushl   $STR2
+		call    printf
+		addl    $8, %esp
+		movl    $0, %eax
+		ret
+		
+		.section    .note.GNU-stack,"",@progbits
+	\end{lstlisting}
+	\subsection{用gcc生成的汇编语言程序}
+		\begin{lstlisting}
+	.file	"E2.c"
+.text
+.globl	x
+.data
+.align 4
+x:
+.long	100
+.text
+.globl	max
+.def	max;	.scl	2;	.type	32;	.endef
+.seh_proc	max
+max:
+pushq	%rbp
+.seh_pushreg	%rbp
+movq	%rsp, %rbp
+.seh_setframe	%rbp, 0
+subq	$16, %rsp
+.seh_stackalloc	16
+
+.seh_endprologue
+movq	%rcx, 16(%rbp)
+movl	%edx, 24(%rbp)
+movl	$0, -4(%rbp)
+movl	$-9999, -8(%rbp)
+jmp	.L2
+.L4:
+movl	-4(%rbp), %eax
+cltq
+leaq	0(,%rax,4), %rdx
+movq	16(%rbp), %rax
+addq	%rdx, %rax
+movl	(%rax), %eax
+cmpl	%eax, -8(%rbp)
+jge	.L3
+movl	-4(%rbp), %eax
+cltq
+leaq	0(,%rax,4), %rdx
+movq	16(%rbp), %rax
+addq	%rdx, %rax
+movl	(%rax), %eax
+movl	%eax, -8(%rbp)
+.L3:
+addl	$1, -4(%rbp)
+.L2:
+movl	-4(%rbp), %eax
+cmpl	24(%rbp), %eax
+jl	.L4
+movl	-8(%rbp), %eax
+addq	$16, %rsp
+popq	%rbp
+ret
+.seh_endproc
+.def	__main;	.scl	2;	.type	32;	.endef
+.section .rdata,"dr"
+.LC0:
+.ascii "%d\0"
+.text
+.globl	main
+.def	main;	.scl	2;	.type	32;	.endef
+.seh_proc	main
+main:
+pushq	%rbp
+.seh_pushreg	%rbp
+movq	%rsp, %rbp
+.seh_setframe	%rbp, 0
+subq	$96, %rsp
+.seh_stackalloc	96
+.seh_endprologue
+call	__main
+movl	$0, -4(%rbp)
+leaq	-52(%rbp), %rax
+movq	%rax, %rdx
+leaq	.LC0(%rip), %rcx
+call	scanf
+jmp	.L7
+.L8:
+movl	-52(%rbp), %eax
+imull	-4(%rbp), %eax
+movl	%eax, %edx
+movl	-4(%rbp), %eax
+cltq
+movl	%edx, -48(%rbp,%rax,4)
+addl	$1, -4(%rbp)
+.L7:
+cmpl	$9, -4(%rbp)
+jle	.L8
+leaq	-48(%rbp), %rax
+movl	$10, %edx
+movq	%rax, %rcx
+call	max
+movl	%eax, -8(%rbp)
+movl	-8(%rbp), %eax
+movl	%eax, %edx
+leaq	.LC0(%rip), %rcx
+call	printf
+movl	$0, %eax
+addq	$96, %rsp
+popq	%rbp
+ret
+.seh_endproc
+.ident	"GCC: (x86_64-posix-seh-rev0, Built by MinGW-W64 project) 7.3.0"
+.def	scanf;	.scl	2;	.type	32;	.endef
+.def	printf;	.scl	2;	.type	32;	.endef
++
+		\end{lstlisting}
+	
+\end{document}
