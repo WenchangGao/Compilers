@@ -1,0 +1,549 @@
+%{
+#include <stdio.h>
+#include <stdlib.h>
+#include "grammerTree.h"
+#include "y.tab.c"
+
+extern "C" 
+
+{
+    void yyerror(const char *s);
+    extern int yylex(void);
+    extern char* yytext;
+};
+
+int word_pos = 0;
+grammerTree* root;
+grammerTree* curNode;
+grammerTree* tempPointer;
+grammerTree* stack[128];
+int stackContentSize = 0;
+
+void extendTree(int isTerminal, const char* word, const char* grammer);
+void backToParent();
+void extendOptTree(const char* opt);
+void extendTerminal(const char* word, const char* grammer);
+
+void saveNode();
+void loadNode();
+
+%}
+
+
+%token CONSTANT STRING_C PRINT INPUT // Constant "String" print input
+%token IDENTIFIER // Idenfifier
+
+%token LP RP LSB RSB LBP RBP // () [] {  }
+%token POINTER // ->
+%token ADDRESS // &
+%token NOT // !
+%token POW // ^
+%token TIMES DIVIDE MOD // * / %
+%token PLUS MINUS // + -
+%token GT LT GE LE // > < >= <=
+%token EQ NE // == !=
+%token AND // &&
+%token OR // ||
+%token ASSIGN // =
+
+%token INT VOID // int void
+%token COMMA SEMICOLON // , ;
+%token IF ELSE // if else
+%token WHILE DO FOR CONTINUE BREAK // while do for continue break
+%token RETURN // return
+%token STRUCT // struct
+
+// expression
+%type expression assign_expression orh_expression or_expression andh_expression and_expression
+%type eneh_expression ene_expression lgh_expression lg_expression pmh_expression pm_expression
+%type mtd_expression mtdh_expression pow_expression powh_expression not_expression noth_expression
+%type pid_expression pointer_expression
+
+//type of argument
+%type type_defination
+
+//for-loop while-loop
+%type for_expression while_expression do_expression
+%type for_action_expression for_condition_expression for_init_expression for_more_action_expression for_more_condition_expression
+
+//decorated_identifier eg: **a[3]
+%type decorated_identifier address_decorator array_decorator high_ay_decorator high_nter_decorator
+
+//statement
+%type statement statement_body statement_block
+
+//declaration of argument and function
+%type declaration declaration_name declaration_content argument_declaration function_declaration
+%type declaration_unit declaration_list declaration_list_tail declaration_init
+%type function_argument function_argument_list function_argument_tail
+
+//condition
+%type condition_expression condition_tail
+
+//output
+%type print_content
+
+
+%nonassoc NONE_ELSE
+%nonassoc ELSE
+
+%start statement_body
+%%
+
+expression
+    : orh_expression assign_expression
+    ;
+
+assign_expression
+    : ASSIGN { 
+        extendOptTree("=");
+    } orh_expression { 
+        backToParent();
+    } assign_expression
+    | /* epsilon */
+    ;
+
+orh_expression
+    : andh_expression or_expression
+    ;
+
+or_expression
+    : OR { 
+        extendOptTree("||");
+    } andh_expression {
+        backToParent();
+    } or_expression
+    | /* epsilon */
+    ;
+
+andh_expression
+    : eneh_expression and_expression 
+    ;
+
+and_expression
+    : AND {  
+        extendOptTree("&&");
+    } eneh_expression {
+        backToParent();
+    } and_expression
+    | /* epsilon */
+    ;
+
+eneh_expression
+    : lgh_expression ene_expression
+    ;
+
+ene_expression
+    : EQ {  
+        extendOptTree("==");
+    } lgh_expression {
+        backToParent();
+    } //ene_expression
+    | NE {  
+        extendOptTree("!=");
+    } lgh_expression {
+        backToParent();
+    } //ene_expression
+    ;
+
+lgh_expression
+    : pmh_expression lg_expression
+    ;
+
+lg_expression
+    : GT {  
+        extendOptTree(">");
+    } pmh_expression {
+        backToParent();
+    }//lg_expression
+    | GE {  
+        extendOptTree(">=");
+    } pmh_expression {
+        backToParent();
+    }//lg_expression
+    | LT {  
+        extendOptTree("<");
+    } pmh_expression {
+        backToParent();
+    }//lg_expression
+    | LE {  
+        extendOptTree("<=");
+    } pmh_expression {
+        backToParent();
+    }//lg_expression
+    | /* epsilon */
+    ;
+
+pmh_expression
+    : mtdh_expression pm_expression
+    ;
+
+pm_expression
+    : PLUS { 
+        extendOptTree("+");
+    } mtdh_expression {
+        backToParent();
+    } pm_expression
+    | MINUS { 
+        extendOptTree("-");
+    } mtdh_expression {
+        backToParent();
+    } pm_expression
+    | /* epsilon */
+    ;
+
+mtdh_expression
+    : powh_expression mtd_expression
+    ;
+
+mtd_expression
+    : MOD { 
+        extendOptTree("%");
+    } powh_expression {
+        backToParent();
+    } mtd_expression
+    | TIMES { 
+        extendOptTree("*");
+    } powh_expression {
+        backToParent();
+    } mtd_expression
+    | DIVIDE { 
+        extendOptTree("/");
+    } powh_expression {
+        backToParent();
+    } mtd_expression
+    | /* epsilon */
+    ;
+
+powh_expression
+    : noth_expression pow_expression
+    ;
+
+pow_expression
+    : POW { 
+        extendOptTree("^");
+    } noth_expression {
+        backToParent();
+    } pow_expression
+    | /* epsilon */
+    ;
+
+noth_expression
+    : {
+        saveNode();
+    } not_expression pid_expression {
+        loadNode();
+    }
+    ;
+
+not_expression
+    : NOT { 
+        extendTree(NON_TERMINAL, "!", "expression");
+    } not_expression
+    | /* epsilon */
+    ;
+
+pid_expression
+    : LP { 
+        extendTree(NON_TERMINAL, "()", "expression");
+    } expression RP { 
+        backToParent();
+    }
+    | IDENTIFIER {
+        //saveNode();
+        extendTree(TERMINAL, $1, "identifier");
+    } pointer_expression {
+        //loadNode();
+    }
+    | CONSTANT { 
+        extendTree(TERMINAL, $1, "identifier");
+    }
+    ;
+
+pointer_expression
+    : POINTER IDENTIFIER {
+        extendOptTree("->");
+        extendTree(TERMINAL, $2);
+        backToParent();
+    } pointer_expression 
+    |
+    ;
+
+type_defination
+    : INT { 
+        extendTerminal("int", "type");
+    } 
+    | VOID { 
+        extendTerminal("void", "type");
+    } 
+    | STRUCT {
+        extendTree(NON_TERMINAL, "struct", "type");
+    } IDENTIFIER {  
+        extendTerminal($3, "identifier");
+        backToParent();
+    }
+    ;
+
+do_expression
+    : DO { 
+        /*establish local scope*/ ;
+        saveNode();
+        extendTree(NON_TERMINAL, "", "do while loop");
+        extendTree(NON_TERMINAL, "do", "loop body");
+    } statement_block WHILE {
+        backToParent();
+        extendTree(NON_TERMINAL, "while", "loop condition");
+    } LP {  
+        extendTree(NON_TERMINAL, "()", "expression");
+    } expression RP { 
+        loadNode();
+    } SEMICOLON
+    ;
+
+while_expression
+    : WHILE {  
+        saveNode();
+        extendTree(NON_TERMINAL, "while", "while loop");
+    } LP { 
+        extendTree(NON_TERMINAL, "()", "expression"); 
+    } expression RP { 
+        backToParent(); 
+        /*establish local scope*/ ;
+        extendTree(NON_TERMINAL, "", "loop body");
+    } statement_block {
+        loadNode();
+    }
+    ;
+
+for_init_expression
+    : declaration { print_non_terminal_symbol(word_pos++, "for_init_expression"); }
+    | expression for_more_condition_expression { print_non_terminal_symbol(word_pos++, "for_init_expression"); }
+    | /* epsilon */
+    ;
+
+for_condition_expression
+    : expression for_more_condition_expression { print_non_terminal_symbol(word_pos++, "for_condition_expression"); }
+    | /* epsilon */
+    ;
+
+for_more_condition_expression
+    : COMMA {  } expression for_more_condition_expression { print_non_terminal_symbol(word_pos++, "for_condition_expression"); }
+    | /* epsilon */
+    ;
+    
+for_action_expression
+    : expression for_more_action_expression { print_non_terminal_symbol(word_pos++, "for_action_expression"); }
+    | /* epsilon */
+    ;
+
+for_more_action_expression
+    : COMMA {  } expression { print_non_terminal_symbol(word_pos++, "for_action_expression"); }
+    | /* epsilon */
+    ;
+
+for_expression
+    : FOR { 
+        /*establish local scope*/ ;
+        saveNode();
+        extendTree(NON_TERMINAL, "for", "for loop");
+    } LP {  
+        extendTree(NON_TERMINAL, "()", "for expression");
+        extendTree(NON_TERMINAL, "", "for init expression");
+    } for_init_expression SEMICOLON {
+        backToParent();
+        extendTree(NON_TERMINAL, "", "for condition");
+    } for_condition_expression SEMICOLON {
+        backToParent();
+        extendTree(NON_TERMINAL, "", "for action");
+    } for_action_expression RP {  
+        backToParent();
+        backToParent();
+        extendTree(NON_TERMINAL, "", "loop body");
+    } statement_block {
+        loadNode();
+    }
+    ;
+
+array_decorator
+    : LSB {  } expression RSB {  } { print_non_terminal_symbol(word_pos++, "array_decorator"); }
+    ;
+
+high_ay_decorator
+    : array_decorator high_ay_decorator { print_non_terminal_symbol(word_pos++, "high_ay_decorator"); }
+    |
+    ;
+
+high_nter_decorator
+    : TIMES {  } high_nter_decorator { print_non_terminal_symbol(word_pos++, "high_nter_decorator"); }
+    |
+    ;
+
+address_decorator
+    : ADDRESS {  } { print_non_terminal_symbol(word_pos++, "address_decorator"); }
+    | 
+    ;
+
+decorated_identifier
+    : address_decorator high_nter_decorator IDENTIFIER {  } high_ay_decorator { print_non_terminal_symbol(word_pos++, "decorated_identifier"); }
+    ;
+
+statement
+    : expression SEMICOLON {  } { print_non_terminal_symbol(word_pos++, "statement"); }
+    //| function { print_non_terminal_symbol(word_pos++, ""); }
+    | for_expression { print_non_terminal_symbol(word_pos++, "statement"); }
+    | do_expression { print_non_terminal_symbol(word_pos++, "statement"); }
+    | while_expression { print_non_terminal_symbol(word_pos++, "statement"); }
+    | condition_expression { print_non_terminal_symbol(word_pos++, "statement"); }
+    | declaration SEMICOLON {  } { print_non_terminal_symbol(word_pos++, "statement"); }
+    | { /*establish local scope*/ ; }statement_block { print_non_terminal_symbol(word_pos++, "statement"); }
+    | BREAK {  } SEMICOLON {  } { print_non_terminal_symbol(word_pos++, "statement"); }
+    | CONTINUE {  } SEMICOLON {  } { print_non_terminal_symbol(word_pos++, "statement"); }
+    | RETURN {  } expression SEMICOLON {  } { print_non_terminal_symbol(word_pos++, "statement"); }
+    | SEMICOLON {  } { print_non_terminal_symbol(word_pos++, ""); }
+    | PRINT {  } LP {  } print_content RP {  } SEMICOLON {  } { print_non_terminal_symbol(word_pos++, "statement"); }
+    | INPUT {  } LP {  } decorated_identifier RP {  } SEMICOLON {  } { print_non_terminal_symbol(word_pos++, "statement"); }
+    ;
+
+
+
+print_content
+    : expression { print_non_terminal_symbol(word_pos++, "print_content"); }
+    | STRING_C {  } { print_non_terminal_symbol(word_pos++, "print_content"); }
+    ;
+
+statement_block
+    : LBP {  } statement_body RBP {  } { print_non_terminal_symbol(word_pos++, "statement_block"); }
+    ;
+
+statement_body
+    : statement statement_body { print_non_terminal_symbol(word_pos++, "statement_body"); }
+    |
+    ;
+
+function_declaration
+    : LP {  } function_argument_list RP {  } { /*establish local scope*/ ;} statement_block { print_non_terminal_symbol(word_pos++, "function_declaration"); }
+    ;
+
+argument_declaration
+    : declaration_list SEMICOLON {  } { print_non_terminal_symbol(word_pos++, "argument_declaration"); }
+    ;
+
+declaration
+    : declaration_name declaration_content { print_non_terminal_symbol(word_pos++, "declaration"); }
+    ;
+
+declaration_content
+    : function_declaration { print_non_terminal_symbol(word_pos++, "declaration_content"); }
+    | argument_declaration { print_non_terminal_symbol(word_pos++, "declaration_content"); }
+    ;
+
+declaration_name
+    : type_defination decorated_identifier { print_non_terminal_symbol(word_pos++, "declaration_name"); }
+    ;
+
+// declaration_list
+//     : declaration_unit COMMA declaration_list { print_non_terminal_symbol(word_pos++, ""); }
+//     | declaration_unit { print_non_terminal_symbol(word_pos++, ""); }
+//     ;
+declaration_list
+    : declaration_unit declaration_list_tail { print_non_terminal_symbol(word_pos++, "declaration_list"); }
+    ;
+
+declaration_list_tail
+    : COMMA {  } declaration_list //{ print_non_terminal_symbol(word_pos++, "declaration_list_tail"); }
+    | 
+    ;
+
+declaration_unit
+    : decorated_identifier declaration_init { print_non_terminal_symbol(word_pos++, "declaration_unit"); }
+    ;
+
+declaration_init
+    : ASSIGN {  } expression { print_non_terminal_symbol(word_pos++, "declaration_init"); }
+    | 
+    ;
+
+function_argument
+    : declaration_name declaration_init{ print_non_terminal_symbol(word_pos++, "function_argument"); }
+    ;
+
+function_argument_list
+    : function_argument function_argument_tail { print_non_terminal_symbol(word_pos++, "function_argument_list"); }
+    |
+    ;
+
+function_argument_tail
+    : COMMA {  } function_argument_list //{ print_non_terminal_symbol(word_pos++, "function_argument_tail"); }
+    |
+    ;
+
+condition_expression
+    : IF {  } LP {  } expression RP {  } statement condition_tail { print_non_terminal_symbol(word_pos++, "condition_tail"); } { print_non_terminal_symbol(word_pos++, "condition_expression"); }
+    ;
+
+condition_tail
+    : ELSE {  } statement 
+    | {}%prec NONE_ELSE
+    ;
+
+%%
+
+%{
+    // void print_non_terminal_symbol(int word_pos, const char* sentence, child* childSymbol){
+    //     printf("%s", sentence);
+    //     printf(":%d", word_pos);
+    //     printf("/t/tchild:");
+    //     for (int i = 0; i < childSymbol.size; i++) {
+    //         printf(" %d", childSymbol.vector[i]);
+    //     }
+    // }
+
+    // void print_terminal_symbol(int word_pos, const char* word){
+    //     printf("%s", word);
+    //     printf(":%d", word_pos);
+    // }
+
+    void extendTree(int isTerminal, const char* word, const char* grammer) {
+        tempPointer = createGrammerNode(isTerminal, word, grammer, word_pos++); 
+        push_child(curNode, tempPointer); 
+        if (isTerminal == NON_TERMINAL) curNode = tempPointer;
+    }
+
+    void backToParent() {
+        if (curNode->parent == NULL) return;
+        curNode = curNode->parent;
+    }
+
+    void saveNode() {
+        stack[stackContentSize++] = curNode;
+    }
+
+    void loadNode() {
+        if (stackContentSize <= 0) return;
+        curNode = stack[--stackContentSize];
+    }
+
+    void extendOptTree(const char* opt){
+        extendTree(NON_TERMINAL, opt, "expression");
+        adjustOptNode(curNode);
+    }
+
+    void extendTerminal(const char* word, const char* grammer){
+        extendTree(TERMINAL, word, grammer);
+    }
+
+    int main(void) { 
+        root = createGrammerNode(NONTERMINAL, "start", -1);
+        curNode = root;
+        tempPointer = NULL;
+        yyparse();
+        generateYACC();
+        printGrammerTree(root);
+        closeYACC();
+        freeGrammerTree(root);
+        return 0; 
+        // grammerItem grammerHead
+        // grammerItem* grammerStackTail;
+        // int size = 0;
+    }   
+%}
